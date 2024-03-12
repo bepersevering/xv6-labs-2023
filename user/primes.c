@@ -1,60 +1,62 @@
 #include "kernel/types.h"
 #include "user/user.h"
 
-#define P_RD 0
-#define P_WR 1
+#define P_READ 0
+#define P_WRITE 1
 
-const int INT_LEN = sizeof(int);
-
-int lpipe_first_data(int p[2], int *first_data) {
-  if (read(p[P_RD], first_data, INT_LEN) == INT_LEN) {
-    printf("prime %d\n", *first_data);
+int lpipe_first_read(int pipe, int *first) {
+  if (read(pipe, first, sizeof(int)) == sizeof(int)) {
+    printf("prime %d\n", *first);
     return 0;
   }
   return -1;
 }
 
-void transmit_data(int lpipe[2], int rpipe[2], int first_data) {
-  int data;
-  while (read(lpipe[P_RD], &data, INT_LEN) == INT_LEN) {
-    if (data % first_data) {
-      write(rpipe[P_WR], &data, INT_LEN);
+void prime(int p[2]) {
+  close(p[P_WRITE]);
+  int rp[2];
+  // 读第一个
+  int first;
+  int t;
+
+  if (lpipe_first_read(p[P_READ], &first) == 0) {
+    pipe(rp);
+    while (read(p[P_READ], &t, sizeof(int)) == sizeof(int)) {
+      if (t % first) {
+        write(rp[P_WRITE], &t, sizeof(int));
+      }
     }
-  }
-  close(lpipe[P_RD]);
-  close(rpipe[P_WR]);
-}
-
-void primes(int p[2]) {
-  close(p[P_WR]);
-  int first_data;
-  if (lpipe_first_data(p, &first_data) == 0) {
-    int rpipe[2];
-    pipe(rpipe);
-    transmit_data(p, rpipe, first_data);
-
-    if (0 == fork()) {
-      primes(rpipe);
+    if (fork() == 0) {
+      // chile process
+      prime(rp);
+      close(rp[P_WRITE]);
     } else {
-      close(rpipe[P_RD]);
+      // parent process
+      close(rp[P_READ]);
+      close(rp[P_WRITE]);
       wait(0);
     }
+
+    close(p[P_READ]);
   }
   exit(0);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
   int p[2];
   pipe(p);
+
   for (int i = 2; i <= 35; i++) {
-    write(p[P_WR], &i, INT_LEN);
+    write(p[P_WRITE], &i, sizeof(int));
   }
 
-  if (0 == fork()) {
-    primes(p);
+  if (fork() == 0) {
+    // child process
+    prime(p);
   } else {
-    close(p[P_WR]);
-    close(p[P_RD]);
+    // parent process
+    close(p[P_READ]);
+    close(p[P_WRITE]);
     wait(0);
   }
 
